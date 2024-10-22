@@ -2,7 +2,7 @@ import socket
 import threading
 
 clients = {}
-PASSWORD = "mychatroompassword"  # Password for the chatroom
+PASSWORD = "udpudp"  # Password for the chatroom
 
 def handle_client(server_socket):
     while True:
