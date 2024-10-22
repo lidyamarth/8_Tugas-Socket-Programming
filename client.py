@@ -1,47 +1,44 @@
 import socket
 import threading
 
-# List untuk menyimpan alamat klien dan informasinya
-clients = {}
-
-def handle_client(server_socket):
+def receive_messages(client_socket):
     while True:
         try:
-            message, client_address = server_socket.recvfrom(1024)
-            decoded_message = message.decode()
-
-            # Jika pesan berisi login, simpan username
-            if decoded_message.startswith("LOGIN:"):
-                username = decoded_message.split(":")[1]
-                clients[client_address] = username
-                print(f"User {username} has joined the chat.")
-                continue
-
-            # Ambil username pengirim berdasarkan alamat klien
-            username = clients[client_address]  # Mengambil username dari dictionary clients
-            print(f"{username}: {decoded_message}")  # Mencetak pesan di server dengan username
-
-            # Siarkan pesan ke semua klien dengan format "username: pesan"
-            for client in clients:
-    #            if client != client_address:  # Menghindari mengirimkan pesan kembali ke pengirim
-                server_socket.sendto(f"{username}: {decoded_message}".encode(), client)
-
+            message, _ = client_socket.recvfrom(1024)
+            print(message.decode())
         except Exception as e:
             print(f"Error: {e}")
-            continue
-
+            break
 
 def main():
+    server_ip = input("Enter server IP: ")
+    server_port = int(input("Enter server port: "))
+    username = input("Enter your username: ")
+    password = input("Enter the chatroom password: ")
+
     # Buat socket UDP
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    server_socket.bind(('0.0.0.0', 12345))  # Bind ke semua interface dan port 12345
-    print("Server is running and waiting for clients...")
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    server_thread = threading.Thread(target=handle_client, args=(server_socket,))
-    server_thread.daemon = True
-    server_thread.start()
+    # Kirim login informasi ke server
+    login_message = f"LOGIN:{username}:{password}"
+    client_socket.sendto(login_message.encode(), (server_ip, server_port))
 
-    server_thread.join()
+    # Buat thread untuk menerima pesan dari server
+    receive_thread = threading.Thread(target=receive_messages, args=(client_socket,))
+    receive_thread.daemon = True
+    receive_thread.start()
+
+    # Loop untuk mengirimkan pesan ke server
+    while True:
+        try:
+            message = input()
+            if message.lower() == 'exit':
+                print("Exiting chat...")
+                break
+            client_socket.sendto(message.encode(), (server_ip, server_port))
+        except Exception as e:
+            print(f"Error: {e}")
+            break
 
 if __name__ == "__main__":
     main()

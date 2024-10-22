@@ -2,6 +2,7 @@ import socket
 import threading
 
 clients = {}
+PASSWORD = "mychatroompassword"  # Password for the chatroom
 
 def handle_client(server_socket):
     while True:
@@ -9,26 +10,41 @@ def handle_client(server_socket):
             message, client_address = server_socket.recvfrom(1024)
             decoded_message = message.decode()
 
-            # Menyimpan username
+            # Proses login
             if decoded_message.startswith("LOGIN:"):
-                username = decoded_message.split(":")[1]
+                _, username, password = decoded_message.split(":")
+                
+                # Verifikasi password
+                if password != PASSWORD:
+                    server_socket.sendto("Invalid password.".encode(), client_address)
+                    continue
+                
+                # Cek apakah username sudah ada
+                if username in clients.values():
+                    server_socket.sendto("Username already taken.".encode(), client_address)
+                    continue
+
+                # Tambahkan klien baru
                 clients[client_address] = username
                 print(f"User {username} has joined the chat.")
+                server_socket.sendto("Login successful!".encode(), client_address)
                 continue
 
             # Ambil username pengirim berdasarkan alamat klien
-            username = clients[client_address]  # Mengambil username dari dictionary clients
-            print(f"{username}: {decoded_message}")  # Menampilkan pesan di server
+            if client_address in clients:
+                username = clients[client_address]
+                print(f"{username}: {decoded_message}")
 
-            # Tampilkan pesan ke semua klien dengan format "username: pesan"
-            for client in clients:
-    #            if client != client_address:  # Kirim pesan kembali ke pengirim???
-                server_socket.sendto(f"{username}: {decoded_message}".encode(), client)
+                # Siarkan pesan ke semua klien dengan format "username: pesan"
+                for client in clients:
+                    if client != client_address:  # Menghindari mengirim pesan kembali ke pengirim
+                        server_socket.sendto(f"{username}: {decoded_message}".encode(), client)
+            else:
+                server_socket.sendto("Please log in first.".encode(), client_address)
 
         except Exception as e:
             print(f"Error: {e}")
             continue
-
 
 def main():
     # Buat socket UDP
