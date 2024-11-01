@@ -1,11 +1,11 @@
-import socket     # Digunakan untuk membuat koneksi ke server melalui jaringan
-import threading     # Pengoperasian paralel, untuk menerima pesan secara terus-menerus tanpa mengganggu GUI
-import tkinter as tk    # Modul standar untuk GUI di Python
-from queue import Queue    # Struktur data untuk menyimpan pesan yang diterima dari server secara teratur    
+import socket
+import threading
+import tkinter as tk
+from queue import Queue
 
-def receive_messages(client_socket, message_queue):
+def receive_messages(client_socket, message_queue, stop_event):
     global authenticated
-    while True:
+    while not stop_event.is_set():  # Loop berjalan selama stop_event belum diatur
         try:
             message, _ = client_socket.recvfrom(1024)
             decoded_message = message.decode()
@@ -13,22 +13,22 @@ def receive_messages(client_socket, message_queue):
 
             if "Invalid password" in decoded_message and not authenticated:
                 message_queue.put(("Invalid password. Please re-enter the password.", "system"))
-                password_entry.config(bg="red")  
-                login_frame.pack(padx=16, pady=8)  
-                chat_frame.pack_forget() 
+                password_entry.config(bg="red")
+                login_frame.pack(padx=16, pady=8)
+                chat_frame.pack_forget()
 
             elif "Username already taken" in decoded_message:
                 message_queue.put(("Username already taken. Please choose another username.", "system"))
-                username_entry.config(bg="red")  
-                login_frame.pack(padx=16, pady=8)  
+                username_entry.config(bg="red")
+                login_frame.pack(padx=16, pady=8)
 
             elif "Login successful" in decoded_message:
                 authenticated = True
-                password_entry.config(bg="white")  
+                password_entry.config(bg="white")
                 username_entry.config(bg="white")
-                login_frame.pack_forget()  
-                chat_frame.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)  
-                entry_field.focus()  
+                login_frame.pack_forget()
+                chat_frame.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)
+                entry_field.focus()
                 message_queue.put(("You have entered the chat room.", "system"))
 
         except Exception as e:
@@ -60,11 +60,16 @@ def send_message(event=None):
         display_message(message, "user")
         client_socket.sendto(message.encode(), (server_ip, server_port))
         if message.lower() == "exit":
-            root.quit()
+            close_connection()
+
+def close_connection():
+    # Set stop event and close socket
+    stop_event.set()  # Memberhentikan thread penerimaan pesan
+    client_socket.close()  # Menutup soket
+    root.quit()  # Keluar dari aplikasi Tkinter
 
 def start_chat():
     global server_ip, server_port, username, password, client_socket, authenticated
-
 
     server_ip = ip_entry.get()
     server_port = int(port_entry.get())
@@ -80,20 +85,25 @@ def start_chat():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     client_socket.sendto(login_message.encode(), (server_ip, server_port))
 
-    threading.Thread(target=receive_messages, args=(client_socket, message_queue)).start()
+    # Start the thread with stop_event
+    threading.Thread(target=receive_messages, args=(client_socket, message_queue, stop_event)).start()
 
 def on_login_button():
     # Run the chat starting process
     threading.Thread(target=start_chat).start()
 
 def main():
-    global root, login_frame, chat_frame, chat_display, user_message, message_queue
+    global root, login_frame, chat_frame, chat_display, user_message, message_queue, stop_event
     global ip_entry, port_entry, username_entry, password_entry, entry_field
+
+    stop_event = threading.Event()  # Event untuk menghentikan thread penerimaan pesan
 
     root = tk.Tk()
     root.title("Chat Room")
     root.geometry("500x500")
-    root.minsize(500, 500) 
+    root.minsize(500, 500)
+
+    root.protocol("WM_DELETE_WINDOW", close_connection)  # Menangani aksi keluar dari aplikasi
 
     # Login Frame
     login_frame = tk.Frame(root)
@@ -134,15 +144,15 @@ def main():
     chat_display.tag_config("user", foreground="blue")
     chat_display.tag_config("server", foreground="green")
     chat_display.tag_config("system", foreground="green")
-    chat_display.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)  
+    chat_display.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)
 
     user_message = tk.StringVar()
     entry_field = tk.Entry(chat_frame, textvariable=user_message)
     entry_field.bind("<Return>", send_message)
-    entry_field.pack(pady=5, fill=tk.X, padx=5)  
+    entry_field.pack(pady=5, fill=tk.X, padx=5)
 
     send_button = tk.Button(chat_frame, text="Send", command=send_message)
-    send_button.pack(pady=8)  
+    send_button.pack(pady=8)
 
     # Initialize the queue for communication between threads
     message_queue = Queue()
