@@ -1,87 +1,154 @@
-import socket
-import threading
+import socket     # Digunakan untuk membuat koneksi ke server melalui jaringan
+import threading     # Pengoperasian paralel, untuk menerima pesan secara terus-menerus tanpa mengganggu GUI
+import tkinter as tk    # Modul standar untuk GUI di Python
+from queue import Queue    # Struktur data untuk menyimpan pesan yang diterima dari server secara teratur    
 
-def receive_messages(client_socket):
-    global authenticated, username 
+def receive_messages(client_socket, message_queue):
+    global authenticated
     while True:
         try:
             message, _ = client_socket.recvfrom(1024)
             decoded_message = message.decode()
-            print(decoded_message)
+            message_queue.put((decoded_message, "server"))
 
-            # Meminta user untuk menginput ulang apabila password salah
             if "Invalid password" in decoded_message and not authenticated:
-                password = input("Please re-enter the password: ")
-                login_message = f"LOGIN:{username}:{password}"
-                client_socket.sendto(login_message.encode(), (server_ip, server_port))
+                message_queue.put(("Invalid password. Please re-enter the password.", "system"))
+                password_entry.config(bg="red")  
+                login_frame.pack(padx=16, pady=8)  
+                chat_frame.pack_forget() 
 
-            # Meminta user untuk menginput ulang apabila username sudah dipakai
             elif "Username already taken" in decoded_message:
-                unique_username(client_socket) 
+                message_queue.put(("Username already taken. Please choose another username.", "system"))
+                username_entry.config(bg="red")  
+                login_frame.pack(padx=16, pady=8)  
 
-            # Jika login berhasil, ubah status otentikasi
             elif "Login successful" in decoded_message:
                 authenticated = True
+                password_entry.config(bg="white")  
+                username_entry.config(bg="white")
+                login_frame.pack_forget()  
+                chat_frame.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)  
+                entry_field.focus()  
+                message_queue.put(("You have entered the chat room.", "system"))
 
         except Exception as e:
-            print(f"Error: {e}")
+            message_queue.put((f"Error: {e}", "system"))
             break
 
-def unique_username(client_socket):
-    global username, password, authenticated
-    while not authenticated:
-        username = input("Username already taken. Please enter a new username: ")
-        login_message = f"LOGIN:{username}:{password}"
-        client_socket.sendto(login_message.encode(), (server_ip, server_port))
+def display_message(message, sender):
+    chat_display.config(state=tk.NORMAL)
+    if sender == "user":
+        chat_display.insert(tk.END, f"You: {message}\n", "user")
+    elif sender == "server":
+        chat_display.insert(tk.END, f"{message}\n", "server")
+    else:
+        chat_display.insert(tk.END, f"{message}\n", "system")
+    chat_display.config(state=tk.DISABLED)
+    chat_display.yview(tk.END)
 
-        message, _ = client_socket.recvfrom(1024)
-        decoded_message = message.decode()
-        print(decoded_message)
-        
-        if "Login successful" in decoded_message:
-            authenticated = True
-            break
-        elif "Username already taken" not in decoded_message:
-            break
+def process_queue():
+    while not message_queue.empty():
+        message, sender = message_queue.get()
+        display_message(message, sender)
+    root.after(100, process_queue)
 
-def main():
-    global username, server_ip, server_port, authenticated, password 
-    server_ip = input("Enter server IP: ")
-    server_port = int(input("Enter server port: "))
-    username = input("Enter your username: ")
-    password = input("Enter the chatroom password: ")
+def send_message(event=None):
+    global authenticated
+    if authenticated:
+        message = user_message.get()
+        user_message.set("")
+        display_message(message, "user")
+        client_socket.sendto(message.encode(), (server_ip, server_port))
+        if message.lower() == "exit":
+            root.quit()
 
-    authenticated = False 
+def start_chat():
+    global server_ip, server_port, username, password, client_socket, authenticated
 
-    # Buat socket UDP
-    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    # Kirim login informasi ke server
+    server_ip = ip_entry.get()
+    server_port = int(port_entry.get())
+    username = username_entry.get()
+    password = password_entry.get()
+
+    authenticated = False
     login_message = f"LOGIN:{username}:{password}"
+
+    password_entry.config(bg="white")
+    username_entry.config(bg="white")
+
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     client_socket.sendto(login_message.encode(), (server_ip, server_port))
 
-    # Buat thread untuk menerima pesan dari server
-    receive_thread = threading.Thread(target=receive_messages, args=(client_socket,))
-    receive_thread.daemon = True
-    receive_thread.start()
+    threading.Thread(target=receive_messages, args=(client_socket, message_queue)).start()
 
-    # Menunggu otentikasi berhasil sebelum memasuki loop untuk mengirimkan pesan
-    while not authenticated:
-        pass
+def on_login_button():
+    # Run the chat starting process
+    threading.Thread(target=start_chat).start()
 
-    # Loop untuk mengirimkan pesan ke server setelah otentikasi berhasil
-    print("Enter message (or type 'exit' to leave): ")
-    while True:
-        try:
-            message = input()
-            if message.lower() == 'exit':
-                client_socket.sendto(message.encode(), (server_ip, server_port))
-                print("Exiting chat...")
-                break
-            client_socket.sendto(message.encode(), (server_ip, server_port))
-        except Exception as e:
-            print(f"Error: {e}")
-            break
+def main():
+    global root, login_frame, chat_frame, chat_display, user_message, message_queue
+    global ip_entry, port_entry, username_entry, password_entry, entry_field
+
+    root = tk.Tk()
+    root.title("Chat Room")
+    root.geometry("500x500")
+    root.minsize(500, 500) 
+
+    # Login Frame
+    login_frame = tk.Frame(root)
+    login_frame.pack(padx=20, pady=8)
+
+    heading_label = tk.Label(root, text="Welcome to Chat Room", font=("Satoshi Variable", 20, "bold"))
+    heading_label.pack(pady=(80, 20))
+
+    # Configure grid for login frame
+    login_frame.grid_columnconfigure(0, weight=1)
+    login_frame.grid_columnconfigure(1, weight=1)
+
+    tk.Label(login_frame, text="Server IP:").grid(row=0, column=0, sticky="w")
+    ip_entry = tk.Entry(login_frame)
+    ip_entry.grid(row=0, column=1, padx=5, pady=5)
+
+    tk.Label(login_frame, text="Server Port:").grid(row=1, column=0, sticky="w")
+    port_entry = tk.Entry(login_frame)
+    port_entry.grid(row=1, column=1, padx=5, pady=5)
+
+    tk.Label(login_frame, text="Username:").grid(row=2, column=0, sticky="w")
+    username_entry = tk.Entry(login_frame)
+    username_entry.grid(row=2, column=1, padx=5, pady=5)
+
+    tk.Label(login_frame, text="Password:").grid(row=3, column=0, sticky="w")
+    password_entry = tk.Entry(login_frame, show="*")
+    password_entry.grid(row=3, column=1, padx=5, pady=5)
+
+    login_button = tk.Button(login_frame, text="Login", command=on_login_button)
+    login_button.grid(row=4, columnspan=2, pady=10)
+
+    # Center the login frame
+    login_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+    chat_frame = tk.Frame(root)
+
+    chat_display = tk.Text(chat_frame, wrap="word", state=tk.DISABLED, bg="#FEFEFE")
+    chat_display.tag_config("user", foreground="blue")
+    chat_display.tag_config("server", foreground="green")
+    chat_display.tag_config("system", foreground="green")
+    chat_display.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)  
+
+    user_message = tk.StringVar()
+    entry_field = tk.Entry(chat_frame, textvariable=user_message)
+    entry_field.bind("<Return>", send_message)
+    entry_field.pack(pady=5, fill=tk.X, padx=5)  
+
+    send_button = tk.Button(chat_frame, text="Send", command=send_message)
+    send_button.pack(pady=8)  
+
+    # Initialize the queue for communication between threads
+    message_queue = Queue()
+
+    root.after(100, process_queue)
+    root.mainloop()
 
 if __name__ == "__main__":
     main()
